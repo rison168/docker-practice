@@ -619,6 +619,33 @@ exit
   #docker attach 进入容器正在执行终端，不会启用新的
   ```
 
-  ![image-20210628182745434](image-20210628182745434.png)
+  
 
-![image-20210628183007917](cimage-20210628183007917.png)
+* 从容器内拷贝文件到主机目录
+
+  ~~~shell
+  (base) rison@rison-PC:~/Desktop$ docker attach b7e008764fb3
+  [root@b7e008764fb3 /]# ls
+  bin  dev  etc  home  lib  lib64  lost+found  media  mnt  opt  proc  root  run  sbin  srv  sys  tmp  usr  var
+  [root@b7e008764fb3 /]# cd home
+  [root@b7e008764fb3 home]# ls
+  [root@b7e008764fb3 home]# ls
+  [root@b7e008764fb3 home]# touch test.java
+  [root@b7e008764fb3 home]# ls
+  test.java
+  [root@b7e008764fb3 home]# exit
+  exit
+  (base) rison@rison-PC:~/Desktop$ docker cp b7e008764fb3:/home/rison/
+  "docker cp" requires exactly 2 arguments.
+  See 'docker cp --help'.
+  
+  Usage:  docker cp [OPTIONS] CONTAINER:SRC_PATH DEST_PATH|-
+          docker cp [OPTIONS] SRC_PATH|- CONTAINER:DEST_PATH
+  
+  Copy files/folders between a container and the local filesystem
+  (base) rison@rison-PC:~/Desktop$ docker cp b7e008764fb3:/home/test.java /home/rison/
+  
+  # 拷贝是一个手动过程，以后可以用卷的模式 -v自动同步
+  ~~~
+
+![image-20210628184714219](pic/image-20210628184714219.png)
