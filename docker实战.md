@@ -649,3 +649,369 @@ exit
   ~~~
 
 ![image-20210628184714219](pic/image-20210628184714219.png)
+
+### 六、docker镜像加载原理
+
+* 镜像是什么？
+
+  镜像是一种轻量级、可执行的独立软件包，用来打包软件运行的环境和基于运行环境开发的软件，他包含运行的某个软件所需要的内容，包括代码、运行时、库、环境变量和配置文件。
+
+* UnionFS（联合文件系统）
+
+  UnionFS（联合文件系统）是一种分层、轻量级并且高性能的文件系统，他支持对**文件系统的修改作为一次提交的一层层叠加**，同时可以将不同的目录挂载到同一个虚拟机文件系统下。union文件系统是docker的镜像基础，镜像可以通过分层来进行继承，基于基础镜像（没有父类镜像），可以制作各种各样的应用镜像。
+
+  特性：一次同时加载多个文件系统，从表面上来看，只能看到一个文件系统，联合加载会把各层的文件系统叠加起来，这样最终的文件系统就会包含个底层的文件和目录。
+
+* docker镜像的加载原理
+
+  docker的镜像实际是由一层层的文件系统组成，这种层级的文件系统叫unionFS.
+
+  bootfs 主要包含bootloader和kernel，bootloader主要是引导加载kernel, linux刚启动的时候会加载bootfs文件系统，在docker镜像的最底层就是bootfs。这一层与我们典型的linux/unix系统是一样的，包含boot加载和内核。当boot加载完成之后，整个内核就在内存中了，此时的内存的使用权已经由bootfs转交给内核，此时的系统也会卸载bootfs。
+
+  rootfs，在bootfs之上，包含的就是典型的linux系统中的 /dev,/proc,/bin,/etc等标准的目录和文件，rootfs就是各种不同的操作系统发行版，比如ubuntu,centos等等。
+
+  对于一个精简的OS，rootfs可以很小，只需要包括最基本的命令、工具和程序库就可以了，因为底层直接用Host的kernel，自己只需要提供rootfs就行了。由此可见对于不同的linux发行版，bootfs基本是一致的，rootfs会有差别，因此不同的发行版可以共用bootfs。![image-20210629085429071](pic/image-20210629085429071.png)
+  ![](pic/image-20210629084433924.png)
+
+* 分层的镜像
+  以我们的pull为例子，在下载的时候我们可以看到docker的镜像好像是在一层层的下载
+
+* 为什么docker镜像要采用这种分层的结构
+
+  最好的好处就是共享资源。
+
+  比如，有多个镜像从相同的base镜像构建而来的，那么宿主机只需要在磁盘保存一份base镜像，同时内存中也只需要加载一份base镜像，就可以为容器服务了。而且镜像的每一层都可以被共享。
+
+  ![image-20210629084901089](pic/image-20210629084901089.png)
+
+镜像都是只读的，当容器启动时，一个新的可写层就会被加载到镜像的顶部。这一层通常被称做容器层，“容器层”之下的都叫“镜像层”。
+
+* commit 镜像
+
+  ~~~shell
+  docker commit 提交容器成为一个新的副本
+  docker commit -m="提交描述信息" -a="作者名称" 容器id 目标镜像：版本
+  ~~~
+
+
+
+### 七、容器数据卷
+
+前提需求：如果数据都在容器中，那么我们把容器删除，数据就会丢失！比如
+
+数据可以持久化到mysql，容器删了就没了，其实mysql的数据可以持久化到本地。
+
+容器之间可以有一个数据共享的技术。docker容器中产生的数据，同步到本地。
+
+目录的挂载，将我们的容器内目录，挂载到linux上面。
+
+
+
+~~~shell
+docker run it -v 本机目录：容器目录
+
+(base) rison@rison-PC:~/Desktop$ docker run -it -v /home/rison/test:/home/ centos /bin/bash
+
+~~~
+
+![image-20210629093322041](pic/image-20210629093322041.png)
+
+* 具名挂载、匿名挂载
+
+  ~~~shell
+  # 匿名挂载
+  -v 容器的目录
+  docker run -d -p -v /ect/nginx nginx 
+  
+  (base) rison@rison-PC:~/Desktop$ docker run -d -P -v /etc/nginx nginx
+  64ac8f4375da48e407f04aeda8b3f5823beafae5bbbb285da1b46186e5411fce
+  (base) rison@rison-PC:~/Desktop$ docker volume ls
+  DRIVER              VOLUME NAME
+  local               9fd19af2782b6b2464d230566ea5dde3d34229e018bf0fd29ebaadabfd3dfeea
+  
+  # 具名挂载
+  -v 卷名：容器目录
+  (base) rison@rison-PC:~/Desktop$ docker run -d -P --name nginx02 -v juming-nginx:/etc/nginx nginx
+  5da99dacfbeaf0aa51a67c1c1ebb1ab2b69b81079525ce2d4d79c36feb9471ba
+  (base) rison@rison-PC:~/Desktop$ docker volume ls
+  DRIVER              VOLUME NAME
+  local               9fd19af2782b6b2464d230566ea5dde3d34229e018bf0fd29ebaadabfd3dfeea
+  local               juming-nginx
+  (base) rison@rison-PC:~/Desktop$ 
+  
+  # 默认目录 /var/lib/docker/volumes/juming-nginx（xxxxx）/_data
+  (base) rison@rison-PC:~/Desktop$ docker volume inspect juming-nginx
+  [
+      {
+          "CreatedAt": "2021-06-29T09:44:11+08:00",
+          "Driver": "local",
+          "Labels": null,
+          "Mountpoint": "/var/lib/docker/volumes/juming-nginx/_data",
+          "Name": "juming-nginx",
+          "Options": null,
+          "Scope": "local"
+      }
+  ]
+  
+  
+  
+  ~~~
+
+  
+
+### 八、 DockerFile
+
+> DockerFile就是用来构建docker镜像的文件，dockerfile是包含用于组合映像的命令文本文档，可以使用命令行调用任何命令。Docker通过读取DockerFile中的指令，自动生成映像。
+>
+> docker build 命令用于从dockerfile构建映像，可以用docker build 命令中使用 -f 标志指向文件系统的任何位置的dockerfile文件。
+
+* 文件说明
+
+  Docker以从上到下的顺序运行Dockerfile的指令。为了指定基本映像，第一条指令必须是*FROM*。一个声明以`＃`字符开头则被视为注释。可以在Docker文件中使用`RUN`，`CMD`，`FROM`，`EXPOSE`，`ENV`等指令。
+
+* 基本结构
+
+  Dockerfile 一般分为四部分：基础镜像信息、维护者信息、镜像操作指令和容器启动时执行指令，’#’ 为 Dockerfile 中的注释。
+
+---
+
+**FROM**  
+
+指定基础镜像，必须为第一个命令
+
+~~~shell
+格式：
+FROM <Image>
+FROM <Imgae>:<tag>
+FROM <Iamge>@<digest>
+
+# 注：tag或disgest是可选的，如果不使用这两个值，就会使用lastest版本的基础镜像。
+
+~~~
+
+**MAINTAINER**
+
+维护者的信息
+
+~~~shell
+格式：
+MAINTAINER <name>
+实例：
+MAINTAINER RISON LEE<rison168@163.com>
+~~~
+
+**RUN**
+
+构建镜像时执行的命令
+
+~~~shell
+RUN用于在镜像容器中执行命令，其有以下两种命令模式:
+格式：
+# 1、shell执行
+RUN <command>
+# 2 、exec执行
+RUN ["executable", "paraml", "param2"]
+示例：
+RUN apk udpdate
+RUN ["/etc/execfile", "arg1", "arg2"]
+# 注：RUN指令创建中间镜像会被缓存，并会在下次构建中使用，如果不想使用这些缓存，可以在构建时 --no-cache参数， 如： docker build --no-cache
+
+~~~
+
+**ADD**
+
+将本地的文件添加到容器中，tar类型文件会自动解压，网络压缩的资源不会被解压，可以访问网络资源，类似wget
+
+```shell
+格式：
+ADD <src> ... <dest>
+ADD ["<src>", ... "<dest>"] 用于支持包含空格的路径
+实例：
+ADD hom* /mydir/       #添加所有hom开头的文件
+ADD hom?.txt /mydir/   #添加一个类似 home.txt的文件
+ADD test relativerDir/ #添加test文件到‘workdir’ /relativeDir/
+ADD test /absoluteDir/ #添加test到/absoluteDir/
+```
+
+**COPY**
+
+功能类似ADD,但是不会自动解压，也不能访问网络资源
+
+**CMD**
+
+构建容器后调用，也就是在容器启动的时候才会进行调用
+
+~~~shell
+格式：
+CMD ["executable", "param1", "param2"] 执行可执行的文件，优先
+CMD ["param1", "param2"] 设置了ENTRYPOINT 则直接调用ENTRYPOINT添加参数
+CMD command param1 param2 执行shell内部命令
+实例：
+CMD echo "this is end" wc -
+CMD ["/usr/bin/wc", "--help"]
+# 注： CMD不同于RUN ,CMD 用于指定容器启动时所执行的命令，而RUN用于指定镜像构建时要执行的命令
+~~~
+
+**ENTRYPOINT**
+
+配置容器，使其可执行化，配合CMD可省去application，只使用参数 这里我理解了，所以不告诉你们哈哈哈
+
+~~~shell
+格式：
+ENTRYPOINT ["exectable", "param1", "param2"] 可执行文件，优先
+ENTRYPOINT cmmand param1 param2 (shell内部命令)
+实例：
+FROM ubuntu
+ENTRYPOINT ["top", "-b"]
+CMD ["-c"]
+# 注：ENTRYOPINT与CMD非常类似，不同的是通过docker run执行的命令不会覆盖 ENTRYPOINT ，而docker run 命令中指定的任何参数都会被当做参数再次传递给ENTRYPOINT. dockerFile中只允许有一个ENTRYOPINT,多指定时会覆盖前面的设置，而只执行最后的ENTRYPOINT指令
+
+~~~
+
+**LABEL**
+
+用于为镜像添加元数据
+
+~~~shell
+格式：
+LABEL <key>=<value> <key>=<value> ....
+实例：
+LABEL version="1.0" description="这是一个web服务" by="RISON"
+# 注： 使用LABEL指定元数据时候，一条LABEL指定可以指定一或多条元数据，指定多条元数据可以通过空格分隔， 土建将所有的元数据通过一条LABEL指定，以免生成过多的中间镜像。
+
+
+~~~
+
+**EXPOSE**
+
+指定外界交互的端口
+
+~~~shell
+格式：
+EXPOSE <post> ....
+EXPOSE 80 8080
+EXPOSE 8080
+EXPOSE 11211/tcp 11211/udp
+# 注：EXPOSE并不会让容器的端口访问到主机，要使其可访问，需要在docker run 运行容器的时候通过-p来发布这些端口，或者通过-p参数来发布EXPOSE导出的所有端口
+~~~
+
+**VOLUME**
+
+用于指定持久化目录
+
+~~~~shell
+格式：
+VOLUME ["/path/to/dir"]
+实例：
+VOLUME ["/data"]
+VLUME ["/var/www", "/var/log/apche2", "/etc/apache2"]
+# 注： 一个卷可以存在于一个或多个容器的指定目录，该目录可以绕过联合文件系统,并且有以下功能：
+* 1 卷可以在容器建共享和重用
+× 2 容器并不一定要和其他的容器共享卷
+× 3 修改卷后会立即生效
+× 4 对卷的修改不会对镜像产生影响
+× 5 卷会一直存在，直到没有任何容器在使用他
+
+~~~~
+
+**USER**
+
+指定运行容器时的用户名，或者UID, 后续RUN也会使用指定的用户。
+
+使用USER指定用户时，可以使用用户名、UID或者GID，或是两者的组合，
+
+当服务不需要管理员的权限时，可以通过该命令指定运行用户，并且可以在之前创建所需要的用户
+
+~~~shell
+格式：
+USER user
+USER user:group
+USER uid
+USER user:gid
+USER uid:gid
+USER uid:group
+实例：
+USER www
+# 注： 使用User指定用户后，DockerFile 中其后的命令RUN/CMD/ENTRYPOINT都将使用该用户，镜像构建完成之后，通过docker run 运行容器时,可以通过-u 参数来覆盖所指定的用户。
+~~~
+
+**WORKDIR**
+
+工作目录，类似于cd命令，进入容器默认所在的目录
+
+~~~shell
+格式：
+WORKDIR /path/to/workdir
+实例： 
+WORKDIR /a 这时工作目录为/a
+WORKDIR b 这时的工作目录为/a/b
+WORKDIR c 这时的工作目录为/a/b/c
+# 注： 通过workdir 设置工作的目录后，dockerfile中其后的命令 run / cmd / entrypoint / add /copy 等命令都会在该目录执行。在使用docker run 运行容器时，可以通过-w参数来覆盖构建所设置的工作目录。
+~~~
+
+**ARG**
+
+用于指定传递给构建运行时的变量
+
+~~~shell
+格式：
+ARG <name>[=<default value]
+实例
+ARG site
+ARG build_user=www
+~~~
+
+**ONBUILD**
+
+用于设置镜像触发器
+
+~~~shell
+格式：
+ONBUILD [INSTRUCTION]
+实例：
+ONBULD ADD . /app/src
+ONBULD RUN /usr/local/bin/python-build --dir /app/src
+# 注： 当所构建的镜像被用于其他镜像的基础镜像，该镜像中的触发器将会触发
+~~~
+
+*******
+
+**示例**
+
+~~~shell
+# This my first nginx Dockerfile
+# Version 1.0
+
+# Base images 基础镜像
+FROM centos
+
+#MAINTAINER 维护者信息
+MAINTAINER tianfeiyu 
+
+#ENV 设置环境变量
+ENV PATH /usr/local/nginx/sbin:$PATH
+
+#ADD  文件放在当前目录下，拷过去会自动解压
+ADD nginx-1.8.0.tar.gz /usr/local/  
+ADD epel-release-latest-7.noarch.rpm /usr/local/  
+
+#RUN 执行以下命令 
+RUN rpm -ivh /usr/local/epel-release-latest-7.noarch.rpm
+RUN yum install -y wget lftp gcc gcc-c++ make openssl-devel pcre-devel pcre && yum clean all
+RUN useradd -s /sbin/nologin -M www
+
+#WORKDIR 相当于cd
+WORKDIR /usr/local/nginx-1.8.0 
+
+RUN ./configure --prefix=/usr/local/nginx --user=www --group=www --with-http_ssl_module --with-pcre && make && make install
+
+RUN echo "daemon off;" >> /etc/nginx.conf
+
+#EXPOSE 映射端口
+EXPOSE 80
+
+#CMD 运行以下命令
+CMD ["nginx"]
+~~~
+
+![image-20210629151213753](pic/image-20210629151213753.png)
